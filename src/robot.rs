@@ -91,7 +91,7 @@ impl Robot {
                 _ => return false,
             }
             true
-        } else {
+        } else {  
             false
         }
     }

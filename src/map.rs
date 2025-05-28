@@ -1,13 +1,6 @@
-use crossterm::{
-    cursor::MoveTo,
-    execute,
-    style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor},
-};
 use noise::{NoiseFn, Perlin};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
-use std::collections::HashMap;
-use std::io::{stdout, Result, Write};
 
 // Types of cells on the map
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -107,59 +100,6 @@ impl Map {
                 placed += 1;
             }
         }
-    }
-
-    // Display the map in the terminal
-    pub fn display(&self) -> Result<()> {
-        let mut stdout = stdout();
-
-        // Do not clear the screen at each frame
-        // execute!(stdout, Clear(ClearType::All))?;
-
-        // Define colors for each cell type
-        let colors = [
-            (&CellType::Empty, (Color::Black, Color::Black, " ")),
-            (&CellType::Obstacle, (Color::Grey, Color::DarkGrey, "▓")),
-            (&CellType::Energy(0), (Color::Yellow, Color::Black, "E")),
-            (&CellType::Mineral(0), (Color::Blue, Color::Black, "M")),
-            (&CellType::SciencePoint, (Color::Green, Color::Black, "S")),
-        ]
-        .iter()
-        .cloned()
-        .collect::<HashMap<_, _>>();
-
-        // Display each cell without clearing the screen
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let cell = &self.cells[y][x];
-                let cell_type = match &cell.cell_type {
-                    CellType::Energy(_) => &CellType::Energy(0),
-                    CellType::Mineral(_) => &CellType::Mineral(0),
-                    other => other,
-                };
-
-                let (fg, bg, symbol) =
-                    colors
-                        .get(cell_type)
-                        .unwrap_or(&(Color::White, Color::Black, "?"));
-
-                execute!(
-                    stdout,
-                    MoveTo(x as u16, y as u16),
-                    SetForegroundColor(*fg),
-                    SetBackgroundColor(*bg),
-                )?;
-
-                write!(stdout, "{}", symbol)?;
-            }
-        }
-
-        // Reset colors
-        execute!(stdout, ResetColor)?;
-
-        // Flush once at the end
-        stdout.flush()?;
-        Ok(())
     }
 
     // Check if the coordinates are valid

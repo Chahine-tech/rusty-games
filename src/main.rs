@@ -17,9 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate random seed for the map
     let seed = rand::thread_rng().gen();
 
-    // Create a map that fills the terminal
-    let map_width = ui.width;
-    let map_height = ui.height - 2; // Reserve space for bottom information
+    // Get terminal size from UI
+    let terminal_size = ui.get_terminal_size()?;
+    let map_width = terminal_size.width as usize;
+    let map_height = terminal_size.height as usize - 2; // Reserve space for bottom information
     let mut map = Map::new(map_width, map_height, seed);
 
     // Find a valid position for the robot (not on an obstacle)

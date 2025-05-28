@@ -1,11 +1,13 @@
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEvent},
     execute,
-    style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::io::{stdout, Result, Write};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Paragraph},
+};
+use std::io::{stdout, Result};
 use std::time::Duration;
 
 use crate::map::Map;
@@ -13,121 +15,84 @@ use crate::robot::{Direction, Robot};
 
 // Structure to manage the user interface
 pub struct UI {
-    pub width: usize,
-    pub height: usize,
-    last_robot_x: usize,
-    last_robot_y: usize,
+    terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
 }
 
 impl UI {
     // Create a new user interface
     pub fn new() -> Result<Self> {
-        // Get the terminal size
-        let (width, height) = terminal::size()?;
+        let backend = CrosstermBackend::new(stdout());
+        let mut terminal = Terminal::new(backend)?;
+        enable_raw_mode()?;
+        execute!(stdout(), EnterAlternateScreen)?;
+        terminal.hide_cursor()?;
+        terminal.clear()?;
+        Ok(Self { terminal })
+    }
 
-        // Configure the terminal
-        terminal::enable_raw_mode()?;
-
-        let mut stdout = stdout();
-        execute!(
-            stdout,
-            EnterAlternateScreen,
-            Hide,
-            Clear(ClearType::All) // Clear the screen only at startup
-        )?;
-
-        Ok(Self {
-            width: width as usize,
-            height: height as usize,
-            last_robot_x: 0,
-            last_robot_y: 0,
-        })
+    pub fn get_terminal_size(&self) -> Result<Rect> {
+        self.terminal.size()
     }
 
     // Clean up and restore the terminal
-    pub fn cleanup(&self) -> Result<()> {
-        terminal::disable_raw_mode()?;
-        execute!(stdout(), LeaveAlternateScreen, Show)?;
+    pub fn cleanup(&mut self) -> Result<()> {
+        disable_raw_mode()?;
+        execute!(stdout(), LeaveAlternateScreen)?;
+        self.terminal.show_cursor()?;
         Ok(())
     }
 
     // Display the map and the robot's information
     pub fn render(&mut self, map: &Map, robot: &Robot) -> Result<()> {
-        let mut stdout = stdout();
+        self.terminal.draw(|frame| {
+            let main_layout = Layout::default()
+                .direction(ratatui::layout::Direction::Vertical) // Fully qualify Direction
+                .constraints([
+                    Constraint::Min(0), // Map area
+                    Constraint::Length(3), // Bottom panel for stats and controls (increased from 2 to 3)
+                ])
+                .split(frame.size());
 
-        // Display the map only at the first render or if necessary
-        static mut FIRST_RENDER: bool = true;
-        unsafe {
-            if FIRST_RENDER {
-                map.display()?;
-                FIRST_RENDER = false;
+            // Render map
+            let mut map_text_lines = Vec::new();
+            for y in 0..map.height {
+                let mut line = String::new();
+                for x in 0..map.width {
+                    if x == robot.x && y == robot.y {
+                        line.push('R');
+                    } else if let Some(cell) = map.get_cell(x, y) {
+                        let symbol = match cell.cell_type {
+                            crate::map::CellType::Empty => " ",
+                            crate::map::CellType::Obstacle => "▓",
+                            crate::map::CellType::Energy(_) => "E",
+                            crate::map::CellType::Mineral(_) => "M",
+                            crate::map::CellType::SciencePoint => "S",
+                        };
+                        line.push_str(symbol);
+                    } else {
+                        line.push(' '); // Should not happen if map is correctly sized
+                    }
+                }
+                map_text_lines.push(Line::from(line));
             }
-        }
+            let map_paragraph = Paragraph::new(map_text_lines)
+                .block(Block::default().title("Map").borders(Borders::ALL));
+            frame.render_widget(map_paragraph, main_layout[0]);
 
-        // Clear the robot's old position if it has changed
-        if self.last_robot_x != robot.x || self.last_robot_y != robot.y {
-            // Restore the cell at the old position
-            if let Some(cell) = map.get_cell(self.last_robot_x, self.last_robot_y) {
-                let symbol = match cell.cell_type {
-                    crate::map::CellType::Empty => " ",
-                    crate::map::CellType::Obstacle => "▓",
-                    crate::map::CellType::Energy(_) => "E",
-                    crate::map::CellType::Mineral(_) => "M",
-                    crate::map::CellType::SciencePoint => "S",
-                };
+            // Render stats and controls
+            let bottom_layout = Layout::default()
+                .direction(ratatui::layout::Direction::Horizontal) // Fully qualify Direction
+                .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+                .split(main_layout[1]);
 
-                let color = match cell.cell_type {
-                    crate::map::CellType::Empty => Color::Black,
-                    crate::map::CellType::Obstacle => Color::Grey,
-                    crate::map::CellType::Energy(_) => Color::Yellow,
-                    crate::map::CellType::Mineral(_) => Color::Blue,
-                    crate::map::CellType::SciencePoint => Color::Green,
-                };
+            let stats_paragraph = Paragraph::new(robot.display_stats())
+                .block(Block::default().title("Robot Stats").borders(Borders::ALL));
+            frame.render_widget(stats_paragraph, bottom_layout[0]);
 
-                execute!(
-                    stdout,
-                    MoveTo(self.last_robot_x as u16, self.last_robot_y as u16),
-                    SetForegroundColor(color),
-                    SetBackgroundColor(Color::Black),
-                )?;
-                write!(stdout, "{}", symbol)?;
-            }
-
-            // Update the last known position
-            self.last_robot_x = robot.x;
-            self.last_robot_y = robot.y;
-        }
-
-        // Display the robot at its current position
-        execute!(
-            stdout,
-            MoveTo(robot.x as u16, robot.y as u16),
-            SetForegroundColor(Color::Red),
-        )?;
-        write!(stdout, "R")?;
-
-        // Display the robot's statistics at the bottom of the screen
-        execute!(
-            stdout,
-            MoveTo(0, self.height as u16 - 1),
-            SetForegroundColor(Color::White),
-        )?;
-        write!(stdout, "{}", robot.display_stats())?;
-
-        // Display the instructions
-        execute!(
-            stdout,
-            MoveTo(0, self.height as u16 - 2),
-            SetForegroundColor(Color::Cyan),
-        )?;
-        write!(
-            stdout,
-            "Controls: Arrows to move, E to explore, C to collect, Q to quit"
-        )?;
-
-        execute!(stdout, ResetColor)?;
-        stdout.flush()?;
-
+            let controls_paragraph = Paragraph::new("Controls: Arrows | E: Explore | C: Collect | Q: Quit")
+                .block(Block::default().title("Controls").borders(Borders::ALL));
+            frame.render_widget(controls_paragraph, bottom_layout[1]);
+        })?;
         Ok(())
     }
 

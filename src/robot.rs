@@ -1,4 +1,6 @@
-use crate::map::{CellType, Map};
+use crate::map::{CellType, Map, RobotExplorationUpdate}; // Updated import
+
+pub const INITIAL_ROBOT_ENERGY: u32 = 100;
 
 // Direction de déplacement du robot
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +18,7 @@ pub struct Robot {
     pub energy: u32,
     pub minerals: u32,
     pub science_points: u32,
+    pub pending_exploration_updates: RobotExplorationUpdate, // Added field
 }
 
 impl Robot {
@@ -24,9 +27,10 @@ impl Robot {
         Self {
             x,
             y,
-            energy: 100,
+            energy: INITIAL_ROBOT_ENERGY, // Use constant
             minerals: 0,
             science_points: 0,
+            pending_exploration_updates: Vec::new(), // Initialize field
         }
     }
 
@@ -91,14 +95,46 @@ impl Robot {
                 _ => return false,
             }
             true
-        } else {  
+        } else {
             false
         }
     }
 
     // Explore the current cell
-    pub fn explore(&self, map: &mut Map) -> bool {
-        map.explore(self.x, self.y)
+    pub fn explore(&mut self, map: &mut Map) -> bool { // Changed to &mut self
+        let (current_x, current_y) = (self.x, self.y);
+        // map.explore marks the cell as explored by the map system
+        // and returns true if the exploration attempt was valid/changed state.
+        if map.explore(current_x, current_y) {
+            // If explored successfully, get the cell's data to add to robot's pending updates.
+            if let Some(cell_data) = map.get_cell(current_x, current_y) {
+                self.pending_exploration_updates.push(((current_x, current_y), cell_data.cell_type.clone()));
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    // Method for the robot to unload its collected payload
+    pub fn unload_payload(&mut self) -> (u32, u32, u32) {
+        let energy_payload = self.energy.saturating_sub(INITIAL_ROBOT_ENERGY);
+        // The robot keeps at least INITIAL_ROBOT_ENERGY if it had more,
+        // or its current energy if it was already below INITIAL_ROBOT_ENERGY.
+        self.energy = self.energy.saturating_sub(energy_payload);
+
+        let minerals_payload = self.minerals;
+        self.minerals = 0;
+
+        let science_payload = self.science_points;
+        self.science_points = 0;
+
+        (energy_payload, minerals_payload, science_payload)
+    }
+
+    // Method for the robot to provide its exploration updates
+    pub fn get_exploration_updates(&mut self) -> RobotExplorationUpdate {
+        std::mem::take(&mut self.pending_exploration_updates)
     }
 
     // Check if the robot has still energy
@@ -109,8 +145,8 @@ impl Robot {
     // Display the robot's statistics
     pub fn display_stats(&self) -> String {
         format!(
-            "Robot at ({}, {}) | Energy: {} | Minerals: {} | Science Points: {}",
-            self.x, self.y, self.energy, self.minerals, self.science_points
+            "Robot at ({}, {}) | Energy: {} | Minerals: {} | Science Points: {} | Updates: {}",
+            self.x, self.y, self.energy, self.minerals, self.science_points, self.pending_exploration_updates.len()
         )
     }
 }

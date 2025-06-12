@@ -12,6 +12,10 @@ pub enum CellType {
     SciencePoint,
 }
 
+// Data structure for updates from robots
+// Each entry is ((x, y_coordinates), type_of_cell)
+pub type RobotExplorationUpdate = Vec<((usize, usize), CellType)>;
+
 // Structure representing a cell of the map
 #[derive(Debug, Clone)]
 pub struct Cell {

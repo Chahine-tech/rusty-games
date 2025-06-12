@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use crate::map::Map;
 use crate::robot::{Direction, Robot};
+use crate::station::Station; // Add import for Station
 
 // Structure to manage the user interface
 pub struct UI {
@@ -43,13 +44,13 @@ impl UI {
     }
 
     // Display the map and the robot's information
-    pub fn render(&mut self, map: &Map, robot: &Robot) -> Result<()> {
+    pub fn render(&mut self, map: &Map, robot: &Robot, station: &Station) -> Result<()> { // Add station parameter
         self.terminal.draw(|frame| {
             let main_layout = Layout::default()
-                .direction(ratatui::layout::Direction::Vertical) // Fully qualify Direction
+                .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
-                    Constraint::Min(0), // Map area
-                    Constraint::Length(3), // Bottom panel for stats and controls (increased from 2 to 3)
+                    Constraint::Min(0),    // Map area
+                    Constraint::Length(9), // Bottom panel: 3 sections * 3 lines/section = 9 lines
                 ])
                 .split(frame.size());
 
@@ -60,6 +61,8 @@ impl UI {
                 for x in 0..map.width {
                     if x == robot.x && y == robot.y {
                         line.push('R');
+                    } else if x == station.x && y == station.y { // Check for station position
+                        line.push('H'); // 'H' for Home/Station
                     } else if let Some(cell) = map.get_cell(x, y) {
                         let symbol = match cell.cell_type {
                             crate::map::CellType::Empty => " ",
@@ -80,18 +83,28 @@ impl UI {
             frame.render_widget(map_paragraph, main_layout[0]);
 
             // Render stats and controls
-            let bottom_layout = Layout::default()
-                .direction(ratatui::layout::Direction::Horizontal) // Fully qualify Direction
-                .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-                .split(main_layout[1]);
+            let bottom_chunks = Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3), // Robot stats (3 lines: title/border, content, border)
+                    Constraint::Length(3), // Station stats (3 lines)
+                    Constraint::Length(3), // Controls (3 lines)
+                ])
+                .split(main_layout[1]); // Split the 9-line bottom area
 
-            let stats_paragraph = Paragraph::new(robot.display_stats())
+            let robot_stats_paragraph = Paragraph::new(robot.display_stats())
                 .block(Block::default().title("Robot Stats").borders(Borders::ALL));
-            frame.render_widget(stats_paragraph, bottom_layout[0]);
+            frame.render_widget(robot_stats_paragraph, bottom_chunks[0]); // Render in the first 3-line chunk
 
-            let controls_paragraph = Paragraph::new("Controls: Arrows | E: Explore | C: Collect | Q: Quit")
-                .block(Block::default().title("Controls").borders(Borders::ALL));
-            frame.render_widget(controls_paragraph, bottom_layout[1]);
+            let station_stats_paragraph = Paragraph::new(station.display_stats())
+                .block(Block::default().title("Station Stats").borders(Borders::ALL));
+            frame.render_widget(station_stats_paragraph, bottom_chunks[1]); // Render in the second 3-line chunk
+
+            let controls_paragraph =
+                Paragraph::new("Controls: Arrows | E: Explore | C: Collect | Q: Quit")
+                    .block(Block::default().title("Controls").borders(Borders::ALL));
+            frame.render_widget(controls_paragraph, bottom_chunks[2]); // Render in the third 3-line chunk
+
         })?;
         Ok(())
     }

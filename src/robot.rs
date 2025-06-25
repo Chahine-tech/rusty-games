@@ -851,3 +851,130 @@ impl Robot {
         path
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_robot_creation() {
+        let robot = Robot::new(5, 10);
+        assert_eq!(robot.x, 5);
+        assert_eq!(robot.y, 10);
+        assert_eq!(robot.energy, INITIAL_ROBOT_ENERGY);
+        assert_eq!(robot.minerals, 0);
+        assert_eq!(robot.science_points, 0);
+        assert_eq!(robot.robot_type, RobotType::Explorer);
+        assert_eq!(robot.state, RobotState::Exploring);
+    }
+
+    #[test]
+    fn test_robot_creation_with_type() {
+        let robot = Robot::new_with_type(3, 7, RobotType::EnergyCollector);
+        assert_eq!(robot.x, 3);
+        assert_eq!(robot.y, 7);
+        assert_eq!(robot.robot_type, RobotType::EnergyCollector);
+        assert_eq!(robot.state, RobotState::Exploring);
+    }
+
+    #[test]
+    fn test_should_return_to_station_low_energy() {
+        let mut robot = Robot::new(0, 0);
+        robot.energy = 15; // Below threshold of 20
+        assert!(robot.should_return_to_station());
+    }
+
+    #[test]
+    fn test_should_return_to_station_full_cargo() {
+        let mut robot = Robot::new_with_type(0, 0, RobotType::EnergyCollector);
+        robot.energy = INITIAL_ROBOT_ENERGY + 80; // Above the threshold (INITIAL_ROBOT_ENERGY + 70)
+        assert!(robot.should_return_to_station());
+    }
+
+    #[test]
+    fn test_unload_payload() {
+        let mut robot = Robot::new(0, 0);
+        // Robot starts with INITIAL_ROBOT_ENERGY (100), add extra energy and resources
+        robot.energy = INITIAL_ROBOT_ENERGY + 50; // 150 total
+        robot.minerals = 30;
+        robot.science_points = 5;
+
+        let (energy, minerals, science) = robot.unload_payload();
+        
+        assert_eq!(energy, 50); // Only the extra energy above INITIAL_ROBOT_ENERGY
+        assert_eq!(minerals, 30);
+        assert_eq!(science, 5);
+        
+        // Robot should keep the initial energy after unloading
+        assert_eq!(robot.energy, INITIAL_ROBOT_ENERGY);
+        assert_eq!(robot.minerals, 0);
+        assert_eq!(robot.science_points, 0);
+    }
+
+    #[test]
+    fn test_get_exploration_updates() {
+        let mut robot = Robot::new(0, 0);
+        // Add some exploration data
+        robot.pending_exploration_updates.push(((1, 1), CellType::Energy(100)));
+        robot.pending_exploration_updates.push(((2, 2), CellType::Mineral(50)));
+
+        let updates = robot.get_exploration_updates();
+        assert_eq!(updates.len(), 2);
+        
+        // Updates should be cleared after getting them
+        assert!(robot.pending_exploration_updates.is_empty());
+    }
+
+    #[test]
+    fn test_is_active() {
+        let mut robot = Robot::new(0, 0);
+        assert!(robot.is_active());
+        
+        robot.energy = 0;
+        assert!(!robot.is_active());
+    }
+
+    #[test]
+    fn test_get_next_position() {
+        let map = Map::new(10, 10, 123);
+        let robot = Robot::new(5, 5);
+
+        if let Some((x, y)) = robot.get_next_position(Direction::North, &map) {
+            assert_eq!(x, 5);
+            assert_eq!(y, 4);
+        }
+
+        if let Some((x, y)) = robot.get_next_position(Direction::East, &map) {
+            assert_eq!(x, 6);
+            assert_eq!(y, 5);
+        }
+
+        if let Some((x, y)) = robot.get_next_position(Direction::South, &map) {
+            assert_eq!(x, 5);
+            assert_eq!(y, 6);
+        }
+
+        if let Some((x, y)) = robot.get_next_position(Direction::West, &map) {
+            assert_eq!(x, 4);
+            assert_eq!(y, 5);
+        }
+    }
+
+    #[test]
+    fn test_get_next_position_boundary() {
+        let map = Map::new(10, 10, 123);
+        let robot = Robot::new(0, 0);
+
+        // Should return None when trying to go out of bounds
+        assert!(robot.get_next_position(Direction::North, &map).is_none());
+        assert!(robot.get_next_position(Direction::West, &map).is_none());
+    }
+
+    #[test]
+    fn test_heuristic() {
+        let robot = Robot::new(0, 0);
+        assert_eq!(robot.heuristic(0, 0, 3, 4), 7); // Manhattan distance
+        assert_eq!(robot.heuristic(1, 1, 1, 1), 0); // Same position
+        assert_eq!(robot.heuristic(5, 2, 1, 6), 8); // |5-1| + |2-6| = 4 + 4 = 8
+    }
+}

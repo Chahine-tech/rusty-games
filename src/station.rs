@@ -256,3 +256,114 @@ impl Station {
 }
 
 // The RobotExplorationUpdate type and known_map field handle shared map information
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_station_creation() {
+        let station = Station::new(5, 10);
+        assert_eq!(station.x, 5);
+        assert_eq!(station.y, 10);
+        assert_eq!(station.energy, 2000);
+        assert_eq!(station.minerals, 500);
+        assert_eq!(station.science_points, 0);
+        assert!(station.robots.is_empty());
+        assert!(station.known_map.is_empty());
+    }
+
+    #[test]
+    fn test_collect_resources() {
+        let mut station = Station::new(0, 0);
+        let initial_energy = station.energy;
+        let initial_minerals = station.minerals;
+        let initial_science = station.science_points;
+
+        station.collect_resources(100, 50, 10);
+
+        assert_eq!(station.energy, initial_energy + 100);
+        assert_eq!(station.minerals, initial_minerals + 50);
+        assert_eq!(station.science_points, initial_science + 10);
+    }
+
+    #[test]
+    fn test_consume_resources_success() {
+        let mut station = Station::new(0, 0);
+        assert!(station.consume_resources(100, 50));
+        assert_eq!(station.energy, 2000 - 100);
+        assert_eq!(station.minerals, 500 - 50);
+    }
+
+    #[test]
+    fn test_consume_resources_insufficient() {
+        let mut station = Station::new(0, 0);
+        // Try to consume more than available
+        assert!(!station.consume_resources(3000, 50)); // Not enough energy
+        assert!(!station.consume_resources(100, 1000)); // Not enough minerals
+        
+        // Resources should remain unchanged
+        assert_eq!(station.energy, 2000);
+        assert_eq!(station.minerals, 500);
+    }
+
+    #[test]
+    fn test_should_create_robot_with_no_robots() {
+        let station = Station::new(0, 0);
+        // With no robots and no known resources, should not create robot
+        assert!(!station.should_create_robot());
+    }
+
+    #[test]
+    fn test_should_create_robot_with_known_resources() {
+        let mut station = Station::new(0, 0);
+        
+        // Add some known valuable resources
+        station.known_map.insert((1, 1), CellType::Energy(100));
+        station.known_map.insert((2, 2), CellType::Mineral(50));
+        station.known_map.insert((3, 3), CellType::SciencePoint);
+        
+        // Now should be willing to create robot
+        assert!(station.should_create_robot());
+    }
+
+    #[test]
+    fn test_create_robot_success() {
+        let mut station = Station::new(0, 0);
+        let initial_robot_count = station.robots.len();
+        
+        assert!(station.create_robot(1, 1));
+        assert_eq!(station.robots.len(), initial_robot_count + 1);
+        
+        // Check resources were consumed
+        assert_eq!(station.energy, 2000 - ROBOT_ENERGY_COST);
+        assert_eq!(station.minerals, 500 - ROBOT_MINERAL_COST);
+    }
+
+    #[test]
+    fn test_create_robot_insufficient_resources() {
+        let mut station = Station::new(0, 0);
+        // Drain resources
+        station.energy = 50; // Less than ROBOT_ENERGY_COST (100)
+        station.minerals = 25; // Less than ROBOT_MINERAL_COST (50)
+        
+        let initial_robot_count = station.robots.len();
+        assert!(!station.create_robot(1, 1));
+        assert_eq!(station.robots.len(), initial_robot_count);
+    }
+
+    #[test]
+    fn test_share_data() {
+        let mut station = Station::new(0, 0);
+        
+        let robot_data = vec![
+            ((1, 1), CellType::Energy(100)),
+            ((2, 2), CellType::Mineral(50)),
+        ];
+        
+        station.share_data(&robot_data);
+        
+        assert_eq!(station.known_map.len(), 2);
+        assert_eq!(station.known_map.get(&(1, 1)), Some(&CellType::Energy(100)));
+        assert_eq!(station.known_map.get(&(2, 2)), Some(&CellType::Mineral(50)));
+    }
+}

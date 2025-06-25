@@ -162,3 +162,68 @@ impl Map {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_map_creation() {
+        let map = Map::new(10, 10, 123);
+        assert_eq!(map.width, 10);
+        assert_eq!(map.height, 10);
+        assert_eq!(map.seed, 123);
+    }
+
+    #[test]
+    fn test_valid_position() {
+        let map = Map::new(5, 5, 123);
+        assert!(map.is_valid_position(0, 0));
+        assert!(map.is_valid_position(4, 4));
+        assert!(!map.is_valid_position(5, 5));
+        assert!(!map.is_valid_position(10, 10));
+    }
+
+    #[test]
+    fn test_get_cell() {
+        let map = Map::new(3, 3, 123);
+        assert!(map.get_cell(0, 0).is_some());
+        assert!(map.get_cell(2, 2).is_some());
+        assert!(map.get_cell(3, 3).is_none());
+    }
+
+    #[test]
+    fn test_explore_cell() {
+        let mut map = Map::new(3, 3, 123);
+        assert!(map.explore(1, 1));
+        assert!(!map.explore(5, 5)); // Invalid position
+
+        if let Some(cell) = map.get_cell(1, 1) {
+            assert!(cell.explored);
+        }
+    }
+
+    #[test]
+    fn test_collect_resource() {
+        let mut map = Map::new(3, 3, 123);
+        // Manually set a cell to have energy
+        if let Some(cell) = map.get_cell_mut(1, 1) {
+            cell.cell_type = CellType::Energy(50);
+        }
+
+        let result = map.collect_resource(1, 1);
+        assert!(result.is_some());
+        if let Some((cell_type, amount)) = result {
+            assert_eq!(amount, 50);
+            match cell_type {
+                CellType::Energy(_) => {} // Expected
+                _ => panic!("Expected Energy type"),
+            }
+        }
+
+        // Cell should now be empty
+        if let Some(cell) = map.get_cell(1, 1) {
+            assert_eq!(cell.cell_type, CellType::Empty);
+        }
+    }
+}

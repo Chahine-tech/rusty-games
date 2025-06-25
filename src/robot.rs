@@ -1,7 +1,45 @@
 use crate::map::{CellType, Map, RobotExplorationUpdate}; // Updated import
 use rand::Rng;
+use std::collections::{BinaryHeap, HashMap};
+use std::cmp::Ordering;
 
 pub const INITIAL_ROBOT_ENERGY: u32 = 100;
+
+// A* pathfinding node
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PathNode {
+    x: usize,
+    y: usize,
+    g_cost: u32,  // Cost from start
+    h_cost: u32,  // Heuristic cost to goal
+    f_cost: u32,  // Total cost (g + h)
+}
+
+impl PathNode {
+    fn new(x: usize, y: usize, g_cost: u32, h_cost: u32) -> Self {
+        Self {
+            x,
+            y,
+            g_cost,
+            h_cost,
+            f_cost: g_cost + h_cost,
+        }
+    }
+}
+
+impl Ord for PathNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse ordering for min-heap behavior
+        other.f_cost.cmp(&self.f_cost)
+            .then_with(|| other.h_cost.cmp(&self.h_cost))
+    }
+}
+
+impl PartialOrd for PathNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 // Direction de déplacement du robot
 #[derive(Debug, Clone, Copy)]
@@ -411,7 +449,7 @@ impl Robot {
         score
     }
 
-    // Move towards station using simple pathfinding
+    // Move towards station using A* pathfinding
     fn move_towards_station(&mut self, map: &mut Map, station_x: usize, station_y: usize, other_robots: &[Robot]) {
         // Check if already at station
         if self.x == station_x && self.y == station_y {
@@ -419,22 +457,33 @@ impl Robot {
             return;
         }
 
-        // Simple pathfinding - move towards station
+        // Use A* pathfinding to find optimal path
+        if let Some(path) = self.find_path(self.x, self.y, station_x, station_y, map, other_robots) {
+            // If path found and has more than one step (current position + next step)
+            if path.len() > 1 {
+                let next_pos = path[1]; // Skip current position (path[0])
+                let direction = self.get_direction_to_position(next_pos.0, next_pos.1);
+                
+                if let Some(dir) = direction {
+                    if self.move_in_direction(dir, map, other_robots) {
+                        return;
+                    }
+                }
+            }
+        }
+        
+        // Fallback to simple directional movement if A* fails
         let dx = if self.x < station_x { 1 } else if self.x > station_x { -1 } else { 0 };
         let dy = if self.y < station_y { 1 } else if self.y > station_y { -1 } else { 0 };
 
-        // Try to move towards station
-        let directions = if dx != 0 && dy != 0 {
-            // Diagonal movement, try both directions
-            if dx > 0 && dy > 0 {
-                vec![Direction::East, Direction::South, Direction::North, Direction::West]
-            } else if dx > 0 && dy < 0 {
-                vec![Direction::East, Direction::North, Direction::South, Direction::West]
-            } else if dx < 0 && dy > 0 {
-                vec![Direction::West, Direction::South, Direction::North, Direction::East]
-            } else {
-                vec![Direction::West, Direction::North, Direction::South, Direction::East]
-            }
+        let directions = if dx > 0 && dy > 0 {
+            vec![Direction::East, Direction::South, Direction::North, Direction::West]
+        } else if dx > 0 && dy < 0 {
+            vec![Direction::East, Direction::North, Direction::South, Direction::West]
+        } else if dx < 0 && dy > 0 {
+            vec![Direction::West, Direction::South, Direction::North, Direction::East]
+        } else if dx < 0 && dy < 0 {
+            vec![Direction::West, Direction::North, Direction::South, Direction::East]
         } else if dx > 0 {
             vec![Direction::East, Direction::North, Direction::South, Direction::West]
         } else if dx < 0 {
@@ -716,5 +765,89 @@ impl Robot {
                 if x == 0 { None } else { Some((x - 1, y)) }
             }
         }
+    }
+
+    // Get direction from current position to target position
+    fn get_direction_to_position(&self, target_x: usize, target_y: usize) -> Option<Direction> {
+        let dx = target_x as i32 - self.x as i32;
+        let dy = target_y as i32 - self.y as i32;
+        
+        match (dx.signum(), dy.signum()) {
+            (1, 0) => Some(Direction::East),
+            (-1, 0) => Some(Direction::West),
+            (0, 1) => Some(Direction::South),
+            (0, -1) => Some(Direction::North),
+            _ => None, // Diagonal or same position
+        }
+    }
+
+    // A* pathfinding implementation
+    fn find_path(&self, start_x: usize, start_y: usize, goal_x: usize, goal_y: usize, map: &Map, other_robots: &[Robot]) -> Option<Vec<(usize, usize)>> {
+        let mut open_set = BinaryHeap::new();
+        let mut came_from = HashMap::new();
+        let mut g_score = HashMap::new();
+        
+        let start_node = PathNode::new(start_x, start_y, 0, self.heuristic(start_x, start_y, goal_x, goal_y));
+        open_set.push(start_node);
+        g_score.insert((start_x, start_y), 0);
+        
+        while let Some(current) = open_set.pop() {
+            // If we reached the goal
+            if current.x == goal_x && current.y == goal_y {
+                return Some(self.reconstruct_path(came_from, (current.x, current.y)));
+            }
+            
+            // Check all neighbors
+            let neighbors = [
+                (current.x.wrapping_sub(1), current.y), // West
+                (current.x + 1, current.y),             // East
+                (current.x, current.y.wrapping_sub(1)), // North
+                (current.x, current.y + 1),             // South
+            ];
+            
+            for (nx, ny) in neighbors {
+                // Skip invalid positions
+                if nx >= map.width || ny >= map.height {
+                    continue;
+                }
+                
+                // Skip obstacles and other robots
+                if !self.is_valid_move(nx, ny, map, other_robots) {
+                    continue;
+                }
+                
+                let tentative_g_score = g_score.get(&(current.x, current.y)).unwrap_or(&u32::MAX) + 1;
+                let current_g_score = g_score.get(&(nx, ny)).unwrap_or(&u32::MAX);
+                
+                if tentative_g_score < *current_g_score {
+                    came_from.insert((nx, ny), (current.x, current.y));
+                    g_score.insert((nx, ny), tentative_g_score);
+                    
+                    let h_cost = self.heuristic(nx, ny, goal_x, goal_y);
+                    let neighbor_node = PathNode::new(nx, ny, tentative_g_score, h_cost);
+                    open_set.push(neighbor_node);
+                }
+            }
+        }
+        
+        None // No path found
+    }
+    
+    // Manhattan distance heuristic
+    fn heuristic(&self, x1: usize, y1: usize, x2: usize, y2: usize) -> u32 {
+        ((x1 as i32 - x2 as i32).abs() + (y1 as i32 - y2 as i32).abs()) as u32
+    }
+    
+    // Reconstruct path from came_from map
+    fn reconstruct_path(&self, came_from: HashMap<(usize, usize), (usize, usize)>, mut current: (usize, usize)) -> Vec<(usize, usize)> {
+        let mut path = vec![current];
+        
+        while let Some(&parent) = came_from.get(&current) {
+            current = parent;
+            path.push(current);
+        }
+        
+        path.reverse();
+        path
     }
 }

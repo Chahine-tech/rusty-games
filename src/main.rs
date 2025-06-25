@@ -2,6 +2,7 @@ mod map;
 mod robot;
 mod ui;
 mod station; // Add station module
+mod startup; // Add startup module
 
 use rand::Rng;
 use std::thread;
@@ -11,8 +12,19 @@ use map::Map;
 use robot::{Robot, RobotType}; // Add RobotType import
 use ui::UI;
 use crate::station::Station; // Add import for Station
+use crate::startup::StartupScreen; // Add import for StartupScreen
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Show startup screen and wait for Enter
+    if !StartupScreen::show() {
+        println!("Failed to start game.");
+        return Ok(());
+    }
+
+    // Clear screen before starting game
+    print!("\x1B[2J\x1B[1;1H");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
     // Initialize user interface
     let mut ui = UI::new()?;
 
